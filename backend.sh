@@ -63,7 +63,7 @@ kill \$(ps ux | grep /server.js | grep -v grep | awk '{print \$2}')
 delete /ssl/key.pem
 delete /ssl/cert.pem
 
-find /etc/letsencrypt -type f -name cert1.pem -exec mv {} /ssl/cert.pem \;
+find /etc/letsencrypt -type f -name fullchain1.pem -exec mv {} /ssl/cert.pem \;
 find /etc/letsencrypt -type f -name privkey1.pem -exec mv {} /ssl/key.pem \;
 
 find /etc/letsencrypt -type f -exec delete {} \;
