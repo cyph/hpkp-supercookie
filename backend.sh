@@ -17,7 +17,7 @@ curl -sL https://deb.nodesource.com/setup_6.x | bash -
 apt-get -y --force-yes update
 apt-get -y --force-yes install nodejs openssl build-essential
 
-su ubuntu -c 'cd ; npm install cors express level'
+su ubuntu -c 'cd ; npm install cors express'
 
 wget https://dl.eff.org/certbot-auto -O /opt/certbot
 chmod +x /opt/certbot
@@ -71,7 +71,7 @@ rm -rf /etc/letsencrypt
 
 chmod -R 777 /ssl /home/ubuntu/server.js
 
-su ubuntu -c 'cd ; rm -rf users ; ./server.js' &
+su ubuntu -c /home/ubuntu/server.js &
 /opt/certbot certonly -n --agree-tos &
 sleep ${interval}
 /rekey.sh &
@@ -83,37 +83,38 @@ cat > /home/ubuntu/server.js << EndOfMessage
 
 const app			= require('express')();
 const child_process	= require('child_process');
-const db			= require('level')('users');
 const fs			= require('fs');
 const https			= require('https');
+
+const users			= {};
 
 const certPath		= '/ssl/cert.pem';
 const keyPath		= '/ssl/key.pem';
 const keyBackupPath	= '/ssl/keybackup.pem';
 
-const errorMessage	= 'fak u gooby';
-
-const keyHashes		= [keyPath, keyBackupPath].map(path =>
-	child_process.spawnSync('openssl', [
-		'enc',
-		'-base64'
-	], {
-		input: child_process.spawnSync('openssl', [
-			'dgst',
-			'-sha256',
-			'-binary'
+const hpkpHeader	= 'max-age=31536000; includeSubdomains; ' +
+	[keyPath, keyBackupPath].map(path =>
+		child_process.spawnSync('openssl', [
+			'enc',
+			'-base64'
 		], {
 			input: child_process.spawnSync('openssl', [
-				'rsa',
-				'-in',
-				path,
-				'-outform',
-				'der',
-				'-pubout'
-			]).stdout
-		}).stdout
-	}).stdout.toString().trim()
-);
+				'dgst',
+				'-sha256',
+				'-binary'
+			], {
+				input: child_process.spawnSync('openssl', [
+					'rsa',
+					'-in',
+					path,
+					'-outform',
+					'der',
+					'-pubout'
+				]).stdout
+			}).stdout
+		}).stdout.toString().trim()
+	).map(hash => \`pin-sha256="\${hash}"\`).join('; ')
+;
 
 const getIdFromRequest	= req =>
 	\`\${req.connection.remoteAddress}-\${req.get('host')}\`
@@ -121,36 +122,19 @@ const getIdFromRequest	= req =>
 
 app.use(require('cors')());
 
-app.get('/check', (req, res) =>
-	db.get(getIdFromRequest(req), (_, isSet) => {
-		if (isSet) {
-			res.status(418);
-			res.end(errorMessage);
-		}
-		else {
-			res.end('');
-		}
-	})
-);
+app.get('/check', (req, res) => {
+	if (users[getIdFromRequest(req)]) {
+		res.status(418);
+	}
 
-app.post('/set', (req, res) =>
-	db.put(getIdFromRequest(req), true, err => {
-		if (err) {
-			res.status(418);
-			res.end(errorMessage);
-		}
-		else {
-			res.set(
-				'Public-Key-Pins',
-				'max-age=31536000; ' +
-					'includeSubdomains; ' +
-					keyHashes.map(hash => \`pin-sha256="\${hash}"\`).join('; ')
-			);
+	res.end('');
+});
 
-			res.end('');
-		}
-	})
-);
+app.post('/set', (req, res) => {
+	users[getIdFromRequest(req)]	= true;
+	res.set('Public-Key-Pins', hpkpHeader);
+	res.end('');
+});
 
 https.createServer({
 	cert: fs.readFileSync(certPath),
