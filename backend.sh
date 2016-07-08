@@ -2,6 +2,8 @@
 
 rootDomain="${1}"
 interval=43200
+shift
+domainWhitelist="${*}"
 
 dir="$(pwd)"
 cd $(cd "$(dirname "$0")"; pwd)
@@ -81,18 +83,20 @@ EndOfMessage
 cat > /home/ubuntu/server.js << EndOfMessage
 #!/usr/bin/env node
 
-const app			= require('express')();
-const child_process	= require('child_process');
-const fs			= require('fs');
-const https			= require('https');
+const app				= require('express')();
+const child_process		= require('child_process');
+const fs				= require('fs');
+const https				= require('https');
 
-const users			= {};
+const users				= {};
 
-const certPath		= '/ssl/cert.pem';
-const keyPath		= '/ssl/key.pem';
-const keyBackupPath	= '/ssl/keybackup.pem';
+const certPath			= '/ssl/cert.pem';
+const keyPath			= '/ssl/key.pem';
+const keyBackupPath		= '/ssl/keybackup.pem';
 
-const hpkpHeader	= 'max-age=31536000; includeSubdomains; ' +
+const domainWhitelist	= {"$(echo "${domainWhitelist}" | perl -pe 's/\s+(.)/": true, "\1/g')": true};
+
+const hpkpHeader		= 'max-age=31536000; includeSubdomains; ' +
 	[keyPath, keyBackupPath].map(path =>
 		child_process.spawnSync('openssl', [
 			'enc',
@@ -120,9 +124,25 @@ const getIdFromRequest	= req =>
 	\`\${req.connection.remoteAddress}-\${req.get('host')}\`
 ;
 
+const validateReferrer	= (req, res) => {
+	if (domainWhitelist[
+		req.get('referrer').split('/')[2].split('.').slice(-2).join('.')
+	]) {
+		return true;
+	}
+
+	res.status(418);
+	res.end('');
+	return false;
+};
+
 app.use(require('cors')());
 
 app.get('/check', (req, res) => {
+	if (!validateReferrer(req, res)) {
+		return;
+	}
+
 	if (users[getIdFromRequest(req)]) {
 		res.status(418);
 	}
@@ -131,6 +151,10 @@ app.get('/check', (req, res) => {
 });
 
 app.post('/set', (req, res) => {
+	if (!validateReferrer(req, res)) {
+		return;
+	}
+
 	users[getIdFromRequest(req)]	= true;
 	res.set('Public-Key-Pins', hpkpHeader);
 	res.end('');

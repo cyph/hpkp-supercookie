@@ -4,7 +4,8 @@
 
 2. Point `*.cyph.wang` at a server running Ubuntu 14.04.
 
-3. Run `backend.sh` on the server.
+3. Run `backend.sh ${domainWhitelist}` on the server, with `domainWhitelist` being a
+whitespace-separated list of root domains approved to access this supercookie server.
 
 4. Include `hpkp-supercookie.js` in your web frontend code.
 
