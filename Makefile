@@ -1,5 +1,5 @@
 all:
-	rm -rf dist promise-polyfill 2> /dev/null
+	rm -rf dist 2> /dev/null
 	mkdir dist
 
 	wget -O dist/hpkp-supercookie.js \
@@ -7,7 +7,5 @@ all:
 
 	cat frontend.js | uglifyjs -m >> dist/hpkp-supercookie.js
 
-	rm -rf promise-polyfill
-
 clean:
-	rm -rf dist promise-polyfill
+	rm -rf dist
