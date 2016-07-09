@@ -96,7 +96,7 @@ const keyBackupPath		= '/ssl/keybackup.pem';
 
 const domainWhitelist	= {"$(echo "${domainWhitelist}" | perl -pe 's/\s+(.)/": true, "\1/g')": true};
 
-const hpkpHeader		= 'max-age=31536000; includeSubdomains; ' +
+const hpkpHeader		= 'max-age=31536000; ' +
 	[keyPath, keyBackupPath].map(path =>
 		child_process.spawnSync('openssl', [
 			'enc',
