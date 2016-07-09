@@ -126,7 +126,7 @@ const getIdFromRequest	= req =>
 
 const validateReferrer	= (req, res) => {
 	if (domainWhitelist[
-		req.get('referrer').split('/')[2].split('.').slice(-2).join('.')
+		((req.get('referrer') || '').split('/')[2] || '').split('.').slice(-2).join('.')
 	]) {
 		return true;
 	}
