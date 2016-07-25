@@ -19,7 +19,7 @@ curl -sL https://deb.nodesource.com/setup_6.x | bash -
 apt-get -y --force-yes update
 apt-get -y --force-yes install nodejs openssl build-essential
 
-su ubuntu -c 'cd ; npm install cors express'
+su ${SUDO_USER} -c 'cd ; npm install cors express'
 
 wget https://dl.eff.org/certbot-auto -O /opt/certbot
 chmod +x /opt/certbot
@@ -71,16 +71,24 @@ find /etc/letsencrypt -type f -name privkey1.pem -exec mv {} /ssl/key.pem \;
 find /etc/letsencrypt -type f -exec delete {} \;
 rm -rf /etc/letsencrypt
 
-chmod -R 777 /ssl /home/ubuntu/server.js
+chmod -R 777 /ssl /home/${SUDO_USER}/server.js
 
-su ubuntu -c /home/ubuntu/server.js &
+su ${SUDO_USER} -c /home/${SUDO_USER}/server.js &
 /opt/certbot certonly -n --agree-tos &
 sleep ${interval}
 /rekey.sh &
 EndOfMessage
 
 
-cat > /home/ubuntu/server.js << EndOfMessage
+cat > /portredirect.sh << EndOfMessage
+#!/bin/bash
+
+sleep 60
+/sbin/iptables -A PREROUTING -t nat -p tcp --dport 443 -j REDIRECT --to-port 31337
+EndOfMessage
+
+
+cat > /home/${SUDO_USER}/server.js << EndOfMessage
 #!/usr/bin/env node
 
 const app				= require('express')();
@@ -179,10 +187,11 @@ https.createServer({
 EndOfMessage
 
 
-chmod 700 /rekey.sh
+chmod 700 /rekey.sh /portredirect.sh
 
 crontab -l > /tmp.cron
 echo '@reboot /rekey.sh' >> /tmp.cron
+echo '@reboot /portredirect.sh' >> /tmp.cron
 crontab /tmp.cron
 rm /tmp.cron
 

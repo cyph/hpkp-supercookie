@@ -33,7 +33,7 @@ self.HPKPSupercookie	= (function () {
 
 			xhr.open(
 				method,
-				'https://' + i + '.' + rootDomain + ':31337' + path,
+				'https://' + i + '.' + rootDomain + path,
 				true
 			);
 
