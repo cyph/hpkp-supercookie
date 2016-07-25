@@ -2,9 +2,9 @@
 
 1. Pick a domain to use for the supercookie server, e.g. `cyph.wang`.
 
-2. Point `*.cyph.wang` at a server running Ubuntu 14.04.
+2. Point `*.cyph.wang` at a server running Ubuntu 16.04.
 
-3. Run `backend.sh ${domainWhitelist}` on the server, with `domainWhitelist` being a
+3. Run `backend.sh cyph.wang ${domainWhitelist}` on the server, with `domainWhitelist` being a
 whitespace-separated list of root domains approved to access this supercookie server.
 
 4. Include `hpkp-supercookie.js` in your web frontend code.
