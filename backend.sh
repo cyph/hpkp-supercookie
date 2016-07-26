@@ -5,6 +5,10 @@ interval=43200
 shift
 domainWhitelist="${*}"
 
+
+adduser --gecos '' --disabled-password --home /home/supercookie supercookie || exit 1
+
+
 dir="$(pwd)"
 cd $(cd "$(dirname "$0")"; pwd)
 
@@ -19,7 +23,7 @@ curl -sL https://deb.nodesource.com/setup_6.x | bash -
 apt-get -y --force-yes update
 apt-get -y --force-yes install nodejs openssl build-essential
 
-su ${SUDO_USER} -c 'cd ; npm install cors express'
+su supercookie -c 'cd ; npm install cors express'
 
 wget https://dl.eff.org/certbot-auto -O /opt/certbot
 chmod +x /opt/certbot
@@ -71,9 +75,9 @@ find /etc/letsencrypt -type f -name privkey1.pem -exec mv {} /ssl/key.pem \;
 find /etc/letsencrypt -type f -exec delete {} \;
 rm -rf /etc/letsencrypt
 
-chmod -R 777 /ssl /home/${SUDO_USER}/server.js
+chmod -R 777 /ssl /home/supercookie/server.js
 
-su ${SUDO_USER} -c /home/${SUDO_USER}/server.js &
+su supercookie -c /home/supercookie/server.js &
 /opt/certbot certonly -n --agree-tos &
 sleep ${interval}
 /rekey.sh &
@@ -88,7 +92,7 @@ sleep 60
 EndOfMessage
 
 
-cat > /home/${SUDO_USER}/server.js << EndOfMessage
+cat > /home/supercookie/server.js << EndOfMessage
 #!/usr/bin/env node
 
 const app				= require('express')();
