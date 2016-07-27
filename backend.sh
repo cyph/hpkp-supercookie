@@ -47,6 +47,10 @@ function delete {
 	fi
 }
 
+iptablesRule='PREROUTING -t nat -p tcp --dport 443 -j REDIRECT --to-port 31337'
+
+/sbin/iptables -D \$iptablesRule
+
 subdomains=''
 for i in {0..31} ; do
 	subdomains="\${subdomains} -d \${i}.${rootDomain}"
@@ -77,18 +81,11 @@ rm -rf /etc/letsencrypt
 
 chmod -R 777 /ssl /home/supercookie/server.js
 
+/sbin/iptables -A \$iptablesRule
 su supercookie -c /home/supercookie/server.js &
 /opt/certbot certonly -n --agree-tos &
 sleep ${interval}
 /rekey.sh &
-EndOfMessage
-
-
-cat > /portredirect.sh << EndOfMessage
-#!/bin/bash
-
-sleep 60
-/sbin/iptables -A PREROUTING -t nat -p tcp --dport 443 -j REDIRECT --to-port 31337
 EndOfMessage
 
 
@@ -191,11 +188,10 @@ https.createServer({
 EndOfMessage
 
 
-chmod 700 /rekey.sh /portredirect.sh
+chmod 700 /rekey.sh
 
 crontab -l > /tmp.cron
 echo '@reboot /rekey.sh' >> /tmp.cron
-echo '@reboot /portredirect.sh' >> /tmp.cron
 crontab /tmp.cron
 rm /tmp.cron
 
